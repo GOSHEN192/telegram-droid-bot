@@ -1,0 +1,8 @@
+node_modules/
+bot.log
+*.bak
+*.bak2
+.env
+sessions.json
+reminders.json
+*.tmp

@@ -1,0 +1,12 @@
+{
+  "name": "telegram-droid-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that calls Factory Droid CLI with custom models",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.0"
+  }
+}
