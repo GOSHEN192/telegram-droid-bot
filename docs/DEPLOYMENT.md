@@ -306,7 +306,7 @@ systemctl start telegram-minimax-bot
     ↕ 发消息/收消息
 Telegram 服务器
     ↕ 长轮询 (telegraf 库)
-云服务器上的 Node.js 程序 (/path/to/telegram-droid-bot/index.js)
+云服务器上的 Node.js 程序 (/root/telegram-droid-bot/index.js)
     ↕ child_process.spawn
 Factory Droid CLI (/root/.local/bin/droid)
     ↕ 读取 settings.local.json 中的 API key
@@ -442,8 +442,8 @@ source ~/.bashrc
 ### 步骤 3：创建项目目录
 
 ```bash
-mkdir -p /path/to/telegram-droid-bot
-cd /path/to/telegram-droid-bot
+mkdir -p /root/telegram-droid-bot
+cd /root/telegram-droid-bot
 ```
 
 ### 步骤 4：创建 package.json
@@ -473,7 +473,7 @@ npm install
 
 ### 步骤 6：创建主程序
 
-创建 `/path/to/telegram-droid-bot/index.js`。
+创建 `/root/telegram-droid-bot/index.js`。
 
 **核心原理：**
 1. 使用 telegraf 接收 Telegram 消息
@@ -525,7 +525,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/path/to/telegram-droid-bot
+WorkingDirectory=/root/telegram-droid-bot
 Environment="TELEGRAM_BOT_TOKEN=你的Telegram Bot Token"
 Environment="ALLOWED_USERS=允许的用户ID"
 Environment="DROID_MODEL=custom:minimax-m2.7"
@@ -536,7 +536,7 @@ Environment="DROID_TIMEOUT=120000"
 Environment="ZAI_API_KEY=你的ZAI API Key"
 Environment="XFYUN_API_KEY=你的讯飞API Key"
 Environment="MINIMAX_API_KEY=你的MiniMax API Key"
-ExecStart=/root/.nvm/versions/node/v22.22.0/bin/node /path/to/telegram-droid-bot/index.js
+ExecStart=/root/.nvm/versions/node/v22.22.0/bin/node /root/telegram-droid-bot/index.js
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -562,8 +562,8 @@ systemctl start telegram-droid-bot
 
 | 文件/目录 | 路径 |
 |----------|------|
-| 项目目录 | `/path/to/telegram-droid-bot/` |
-| 主程序 | `/path/to/telegram-droid-bot/index.js` |
+| 项目目录 | `/root/telegram-droid-bot/` |
+| 主程序 | `/root/telegram-droid-bot/index.js` |
 | systemd 服务 | `/etc/systemd/system/telegram-droid-bot.service` |
 | Droid 配置 | `/root/.factory/settings.local.json` |
 | Droid 认证 | `/root/.factory/auth.v2.file` |
@@ -757,7 +757,7 @@ systemctl start telegram-droid-bot
 **日志特征（可从 journalctl 确认）：**
 ```
 [DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high 你好        ← 没有 -s
-[DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high 我叫YOUR_NAME   ← 没有 -s
+[DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high 我叫Peter   ← 没有 -s
 [DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high 我叫什么？   ← 没有 -s
 ```
 
@@ -811,19 +811,19 @@ function parseDroidOutput(rawOutput) {
 
 ```bash
 # 第1条：建立会话
-$ SID=$(droid exec -m custom:minimax-m2.7 -o json "我叫YOUR_NAME" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
+$ SID=$(droid exec -m custom:minimax-m2.7 -o json "我叫Peter" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
 # Session ID: 1268a98b-3582-47da-87da-b58d19ae1579
 
 # 第2条：用同一 session ID 延续上下文
 $ droid exec -m custom:minimax-m2.7 -o json -s "$SID" "我叫什么名字？"
-# 返回: "你叫 YOUR_NAME。" ✅ 上下文延续成功！
+# 返回: "你叫 Peter。" ✅ 上下文延续成功！
 ```
 
 修复后的日志特征：
 ```
 [DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high -o json 你好
-[SESSION] Updated session for user YOUR_USER_ID: e367d489-...
-[DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high -o json -s e367d489-... 我叫YOUR_NAME  ← 带 -s 了！
+[SESSION] Updated session for user 5989118323: e367d489-...
+[DROID] Calling: droid exec -m custom:minimax-m2.7 --auto high -o json -s e367d489-... 我叫Peter  ← 带 -s 了！
 ```
 
 #### 坑 7：重启服务后上下文丢失（会话持久化）
@@ -883,7 +883,7 @@ loadSessions();
 **sessions.json 文件示例：**
 ```json
 {
-  "YOUR_USER_ID": {
+  "5989118323": {
     "sessionId": "1268a98b-3582-47da-87da-b58d19ae1579",
     "model": "custom:minimax-m2.7",
     "autoLevel": "high"
@@ -891,7 +891,7 @@ loadSessions();
 }
 ```
 
-**文件位置：** `/path/to/telegram-droid-bot/sessions.json`
+**文件位置：** `/root/telegram-droid-bot/sessions.json`
 
 **效果：**
 - 重启 bot 服务 → 从 `sessions.json` 加载上次的 session ID → 自动延续对话上下文
@@ -1021,7 +1021,7 @@ const {code, stdout, stderr} = await runDroidCli(['mcp','add',name,url,'--type',
 ### 7.3 注意事项
 
 1. **同一个 Bot Token 冲突** — 不能同时运行 telegram-minimax-bot 和 telegram-droid-bot，必须停掉一个再启动另一个
-2. **会话持久化** — session ID 持久化到 `/path/to/telegram-droid-bot/sessions.json`，重启服务/服务器后自动恢复上下文（执行 `/new` 才会清空）
+2. **会话持久化** — session ID 持久化到 `/root/telegram-droid-bot/sessions.json`，重启服务/服务器后自动恢复上下文（执行 `/new` 才会清空）
 3. **消息长度** — 超过 4000 字符的回复会自动分段发送
 4. **超时设置** — 默认 120 秒，复杂任务可能需要更长时间（通过 `/timeout` 调整）
 5. **推理输出过滤** — 已自动过滤 `<thought>` 和 `<think/>` 标签内容
@@ -1134,15 +1134,209 @@ if (result.code!==0 && session.sessionId && (isSessionCorrupted(combinedOutput) 
 | 2026-05-06 | 修复 3 个提醒 Bug：空输出重试 + 周提醒重复 + 遗漏补救 |
 | 2026-05-07 | 提醒系统架构重构：删除正则拦截 + 新增 remind-cli + 修复 weekly/monthly day 检查 bug |
 | 2026-05-07 | AGENTS.md 添加 remind-cli 和 mmx vision 使用说明 |
-| 2026-05-11 | 修复 Bug #1：A_CONTACT提醒每天发 — run_daily_news.sh 删除 source send_telegram_huang.sh |
+| 2026-05-11 | 修复 Bug #1：黄弟兄提醒每天发 — run_daily_news.sh 删除 source send_telegram_huang.sh |
 | 2026-05-11 | 修复 Bug #2：提醒发到错误 chatId — text/photo handler 注入 chatId 到 Droid 上下文 |
 | 2026-05-11 | 修复提醒系统 Bug A/B/C/D：remind-cli 加时间格式验证+规范化+类型校验+day范围检查 |
 | 2026-05-11 | remind-cli 新增 --json 结构化输出模式，Droid 可感知错误并自动重试 |
 | 2026-05-11 | 修复 Bug #3：Droid 语义理解错误，单次提醒被设为 daily — ctxNote 注入类型默认规则（坑 16） |
+| 2026-05-11 | **图片处理逻辑重构**：移除模型支持检查，图片始终传给 Droid 处理，让 Droid 根据 AGENTS.md 规则决定用 mmx vision 分析或 curl 上传到电商（坑 17） |
+| 2026-05-13 | **修复 processing 锁死 bug**：Telegraf handlerTimeout(90s) < spawn DROID_TIMEOUT(120s) 导致 finally 不执行，processing 永久锁死。handlerTimeout 改为 0，spawn 添加 SIGKILL 兜底，/stop 命令增强杀子进程（坑 18） |
+| 2026-05-13 | **checkProcessingStuck 改进**：基于进程存活状态判断卡死而非硬编码5分钟，正常长任务（进程存活）不打断，进程已死/僵尸才自动重置（坑 19） |
 
 ---
 
-#### 坑 12：提醒 3 个 Bug — 空输出无内容、周提醒每天重复、一次性提醒遗漏（2026-05-06）
+#### 坑 17：图片处理逻辑重构 — 移除模型支持检查（2026-05-11）
+
+**现象：** 用户在 Telegram 发送图片 + 文字"上传这张产品图到 Meme Plush 01 产品中"，bot 回复"⚠️ 当前模型不支持图片识别"，图片无法处理。
+
+**根因：** `handlePhoto()` 函数中有模型支持检查：
+```javascript
+// 旧逻辑
+const noImageModels = Object.values(CUSTOM_MODELS);
+const modelSupportsImage = !noImageModels.includes(s.model);
+if (!modelSupportsImage) {
+  await ctx.reply('⚠️ 当前模型不支持图片识别...');
+  return;  // ← 直接退出，图片丢失
+}
+```
+
+当使用默认模型 `custom:minimax-m2.7`（不支持图片分析）时，图片直接被丢弃，无法传给 Droid 处理。
+
+**问题本质：** 图片处理需求分为两种：
+1. **图片分析** — 需要模型支持图片（如 claude-sonnet、gpt54、gemini-pro）
+2. **图片上传/操作** — 不需要模型支持图片，只需要 Droid 有工具能力（如上传到电商网站）
+
+用户的"上传产品图"需求属于第二种，但旧逻辑把两种需求混在一起处理了。
+
+**修复方案：** 移除模型支持检查，将图片路径和处理规则传给 Droid，让 Droid 自己决定：
+
+```javascript
+// 新逻辑
+const caption = ctx.message.caption || '';
+let prompt = `[图片已保存到: ${tmpPath}]\n`;
+if (caption) {
+  prompt = caption + '\n' + prompt;
+}
+// 添加图片处理指引
+prompt += `\n[图片处理规则]：
+- 如果需要分析图片内容，请使用: mmx vision --file ${tmpPath}
+- 如果需要上传到电商网站，请按照 AGENTS.md 中的「电商产品图片上传」规则执行
+- 图片临时路径在对话结束后会自动删除，如需保留请及时处理`;
+```
+
+**修复效果：**
+- 用户发图 + "上传到产品" → Droid 调用 curl 上传图片到电商存储
+- 用户发图 + "这是什么？" → Droid 调用 mmx vision 分析图片内容
+- 两种需求都能正常处理，不再因模型不支持图片而中断
+
+**关键教训：**
+- 不要在 bot 层面过早拦截，让 Droid 有机会根据 AGENTS.md 规则智能处理
+- 图片处理需求要区分"分析"和"操作"两种类型
+- 文档驱动：通过 AGENTS.md 定义规则，让 Droid 理解如何处理图片
+
+**改动文件：** `/root/telegram-droid-bot/index.js` — `handlePhoto()` 函数（约 15 行）
+
+---
+
+#### 坑 18：Telegraf handlerTimeout 与 spawn DROID_TIMEOUT 不一致导致 processing 锁死（2026-05-13）
+
+**现象：** 用户在 Telegram 发送任何消息，都回复"⏳ 上一个请求还在处理中..."，bot 完全不可用。
+
+**根因：** Telegraf v4.16.3 默认 `handlerTimeout=90s`，而 spawn 的 `DROID_TIMEOUT=120s`。当 droid exec 超过90秒时：
+
+1. Telegraf 的 `pTimeout` 在90秒时 reject 外层 Promise → 日志显示 `[BOT ERROR] TimeoutError`
+2. 但内层 handler 的 async 函数**仍在运行**（`callDroid()` 还在等 spawn 返回）
+3. spawn 的120秒超时虽然发了 SIGTERM 给 droid 进程，但 droid 进程**没有退出**（忽略 SIGTERM 或卡住）
+4. spawn promise 永远不 resolve，handler 的 `finally` 块**永远不执行**
+5. `s.processing` 永远停留在 `true`
+6. 所有后续消息都被拦截：`⏳ 上一个请求还在处理中...`
+
+**日志证据（2026-05-13 10:20:10）：**
+```
+[DROID] droid exec -m custom:minimax-m2.7 -o json --auto high -s 8fcd4a04-... -f /tmp/droid_prompt_xxx.txt (cwd: /root/Peter工作空间)
+[BOT ERROR] TimeoutError: Promise timed out after 90000 milliseconds
+# 之后所有消息都返回 "⏳ 上一个请求还在处理中..."
+```
+
+**进程证据：**
+```
+PID 3768948 运行1小时51分钟，状态 Sl（睡眠/卡住）
+命令: /root/.local/bin/droid exec -m custom:minimax-m2.7 -o json --auto high -s 8fcd4a04-... -f /tmp/droid_prompt_xxx.txt
+```
+
+**修复方案（4处改动）：**
+
+1. **增加 Telegraf handlerTimeout**：设为 0（无限），由 spawn 的 `DROID_TIMEOUT` 统一控制超时：
+```javascript
+// 之前
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+// 之后
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 0 });
+```
+
+2. **execDroid() 添加进程追踪 + SIGKILL 强杀**：spawn timeout 只发 SIGTERM，5秒后还没退出则 SIGKILL：
+```javascript
+session.currentProc = proc;  // 将进程引用存到 session 上
+// spawn timeout 只发 SIGTERM，5秒后还没退出则 SIGKILL 强杀
+const killTimer = setTimeout(() => {
+  if (!resolved && proc.pid) {
+    console.log(`[DROID] Process ${proc.pid} still alive after SIGTERM, sending SIGKILL...`);
+    proc.kill('SIGKILL');
+  }
+}, DROID_TIMEOUT + 5000);
+```
+
+3. **/stop 命令增强**：同时杀掉 droid 子进程：
+```javascript
+bot.command('stop', async ctx => {
+  ...
+  if (s.currentProc && s.currentProc.pid) {
+    s.currentProc.kill('SIGKILL');
+    s.currentProc = null;
+  }
+  s.processing=false; s.processingSince=null; s.currentProc=null; s.sessionId=null;
+  ...
+});
+```
+
+4. **新增 processingSince 时间戳 + 过期自动检测**：在 `s.processing=true` 时记录时间戳，handler 入口检查是否超时卡死（详见坑 19）。
+
+**关键教训：**
+- 框架默认超时和自定义超时必须协调，外层超时 < 内层超时会导致 finally 不执行
+- spawn timeout 只发 SIGTERM，不保证进程退出，需要 SIGKILL 兜底
+- 进程引用必须追踪，否则无法在 `/stop` 时杀掉卡住的子进程
+
+**修复日期：** 2026-05-13
+
+---
+
+#### 坑 19：checkProcessingStuck 改进 — 区分正常长任务 vs 真正卡死（2026-05-13）
+
+**背景：** 坑 18 修复后新增了 `checkProcessingStuck()` 函数，初始实现用硬编码5分钟判断是否"卡死"。
+
+**问题：** 用户可能用 `/timeout 600` 设置10分钟超时来运行复杂任务（如多步代码生成），5分钟的硬编码超时会误杀正常长任务。
+
+**无法区分的场景：**
+
+| 场景 | processing 时长 | droid 进程状态 | 应该怎么做 |
+|------|----------------|---------------|-----------|
+| 正常长任务 | >5分钟 | **存活**，还在产出 | 不应该杀 |
+| 进程卡死 | >5分钟 | **已死**或僵尸 | 应该重置 |
+| 进程已退出但 finally 没执行 | >5分钟 | **不存在** | 应该重置 |
+
+**修复方案：** 基于进程存活状态判断，而非纯时间：
+
+```javascript
+function checkProcessingStuck(s) {
+  if (!s.processing) return false;
+
+  // 检查 droid 子进程是否还活着（signal 0 不发信号，只检查进程是否存在）
+  let procAlive = false;
+  if (s.currentProc && s.currentProc.pid) {
+    try { process.kill(s.currentProc.pid, 0); procAlive = true; } catch(e) {}
+  }
+
+  if (procAlive) {
+    // 进程还活着 → 可能是正常长任务
+    // 兜底：超过 3x DROID_TIMEOUT 视为僵尸（spawn timeout + SIGKILL 都失效的极端情况）
+    const zombieLimit = DROID_TIMEOUT * 3;
+    if (s.processingSince && Date.now() - s.processingSince > zombieLimit) {
+      s.currentProc.kill('SIGKILL');
+      s.currentProc = null;
+      s.processing = false; s.processingSince = null;
+      return true;
+    }
+    return false; // 进程活着且未超 3x timeout → 正常长任务，不打断
+  }
+
+  // 进程不存在 → processing 应该已被 finally 清掉
+  // 如果还在 processing，说明 finally 没执行，需要手动重置
+  const stuckLimit = DROID_TIMEOUT + 10000; // DROID_TIMEOUT + 10s 缓冲
+  if (s.processingSince && Date.now() - s.processingSince > stuckLimit) {
+    s.currentProc = null;
+    s.processing = false; s.processingSince = null;
+    return true;
+  }
+
+  return false;
+}
+```
+
+**检测逻辑总结：**
+
+| 情况 | 进程状态 | 时间判断 | 动作 |
+|------|---------|---------|------|
+| 正常长任务 | 存活 | < 3x DROID_TIMEOUT | **不打断** |
+| 僵尸进程 | 存活但不产出 | > 3x DROID_TIMEOUT | SIGKILL + 重置 |
+| 进程已死但 processing 没清 | 不存在 | > DROID_TIMEOUT + 10s | 重置 processing |
+| 刚开始处理 | 任意 | < DROID_TIMEOUT | 不干涉 |
+
+**关键教训：**
+- 不要用硬编码时间判断卡死，应该检查进程实际存活状态
+- `process.kill(pid, 0)` 可以非侵入式检查进程是否存在（不发信号）
+- 兜底超时应与用户设定的 `DROID_TIMEOUT` 挂钩，而非固定值
+
+**修复日期：** 2026-05-13
 
 **Bug1 — 空输出无内容**
 - 现象：droid 回复"Droid 没有返回内容"
@@ -1171,7 +1365,7 @@ if (result.code!==0 && session.sessionId && (isSessionCorrupted(combinedOutput) 
 
 **架构重构方案：**
 1. 删除 tryHandleNaturalReminder（约120行正则拦截代码）
-2. 新建 `/path/to/telegram-droid-bot/remind-cli.js` — 独立 CLI，droid 通过 Execute 工具调用
+2. 新建 `/root/telegram-droid-bot/remind-cli.js` — 独立 CLI，droid 通过 Execute 工具调用
 3. AGENTS.md 添加 remind-cli 使用说明，让 droid 理解"设置提醒 → 调用 remind-cli"
 4. setInterval 开头重载 reminders.json（感知外部 direct write）
 
@@ -1182,15 +1376,15 @@ if (result.code!==0 && session.sessionId && (isSessionCorrupted(combinedOutput) 
 
 ---
 
-#### 坑 14：提醒发错 chatId + A_CONTACT提醒每天发（2026-05-11）
+#### 坑 14：提醒发错 chatId + 黄弟兄提醒每天发（2026-05-11）
 
-**Bug #1 — A_CONTACT提醒每天触发**
-- 现象：每天早上 7:30 收到"⏰ 提醒：给A_CONTACT发信息，提醒他来参加聚会"
+**Bug #1 — 黄弟兄提醒每天触发**
+- 现象：每天早上 7:30 收到"⏰ 提醒：给黄弟兄发信息，提醒他来参加聚会"
 - 根因：`run_daily_news.sh` 有 `source send_telegram_huang.sh` 一行，意图是获取 BOT_TOKEN，但该脚本执行了 curl 发送消息，每天触发一次副作用
 - 修复：删除 `run_daily_news.sh` 中的 `source` 那两行（`daily_ai_news.py` 直接读 `/tmp/token.txt`，不需要 shell 的 BOT_TOKEN）
 
 **Bug #2 — Droid 调用 remind-cli 时使用错误的 chatId**
-- 现象：在家庭群（chatId=YOUR_GROUP_CHAT_ID_2）设的提醒发到 YOUR_NAME 私聊（chatId=YOUR_USER_ID）
+- 现象：在家庭群（chatId=-1003872540185）设的提醒发到 Peter 私聊（chatId=5989118323）
 - 根因：Droid 接收的是纯文本消息，不知道当前会话的 chatId，只能依靠 AGENTS.md 示例中的 chatId（私聊 ID）
 - 修复：bot text handler 和 photo handler 在调用 `callDroid` 前注入 `[系统: 当前会话 chatId=XXX (标签)]`，Droid 必须使用该值
 
@@ -1242,7 +1436,7 @@ if (result.code!==0 && session.sessionId && (isSessionCorrupted(combinedOutput) 
 const ctxNote = `[系统: chatId=${chatId}；调用 remind-cli 时请加 --json；提醒类型默认规则：除非用户明确说了"每天/每周/每月"等周期词，否则一律用 --type once（一次性），不要猜测]`;
 ```
 
-**同步操作：** 清空了家庭群的旧 Droid session（sessions.json 中 `YOUR_USER_ID_YOUR_GROUP_CHAT_ID_2` 的 sessionId 置 null），重启 bot
+**同步操作：** 清空了家庭群的旧 Droid session（sessions.json 中 `5989118323_-1003872540185` 的 sessionId 置 null），重启 bot
 
 **关键教训：**
 - AGENTS.md 只对新 session 生效。需要对所有 session 实时生效的规则，必须放入 ctxNote（每条消息注入）
@@ -1466,10 +1660,10 @@ droid-chat-channel/
 
 | 当前硬编码 | 模板变量 | 说明 |
 |-----------|---------|------|
-| `YOUR_USER_ID` | `${ALLOWED_USERS}` | 允许的用户 ID |
-| `/home/user/private-workspace` | `${PRIVATE_CWD}` | 私聊工作目录 |
-| `/home/user/family-workspace` | `${GROUP_CWD}` | 群聊工作目录 |
-| `YOUR_GROUP_CHAT_ID_1` | `${GROUP_CHAT_IDS}` | 群聊 ID 列表 |
+| `5989118323` | `${ALLOWED_USERS}` | 允许的用户 ID |
+| `/root/Peter工作空间` | `${PRIVATE_CWD}` | 私聊工作目录 |
+| `/root/家庭工作空间` | `${GROUP_CWD}` | 群聊工作目录 |
+| `-3872540185` | `${GROUP_CHAT_IDS}` | 群聊 ID 列表 |
 | `8629226331:AA...` | `${BOT_TOKEN}` | 平台 Bot Token |
 | `/root/.local/bin/droid` | `${DROID_PATH}` | droid CLI 路径 |
 
@@ -1751,20 +1945,20 @@ const proc = spawn(DROID_PATH, args, { cwd, env: DROID_ENV, ... });
 
 | chatId | 工作目录 | 角色人格 | 说明 |
 |--------|---------|---------|------|
-| 私聊（非群组） | `/home/user/private-workspace` | 工作助手 | 默认工作上下文 |
-| `YOUR_GROUP_CHAT_ID_1` | `/home/user/family-workspace` | 家庭生活助手 | 温暖基督徒家庭 AI |
-| `YOUR_GROUP_CHAT_ID_2` | `/home/user/family-workspace` | 家庭生活助手 | 同上（supergroup ID） |
+| 私聊（非群组） | `/root/Peter工作空间` | 工作助手 | 默认工作上下文 |
+| `-3872540185` | `/root/家庭工作空间` | 家庭生活助手 | 温暖基督徒家庭 AI |
+| `-1003872540185` | `/root/家庭工作空间` | 家庭生活助手 | 同上（supergroup ID） |
 
 ### 4.4 工作目录的 Persona 文件
 
-**工作空间** (`/home/user/private-workspace/`)：
+**工作空间** (`/root/Peter工作空间/`)：
 - `AGENTS.md` — 工作助手角色定义
 - `.factory/RULES.md` — 执行规则
 - `.factory/MEMORY.md` — 长期记忆
 
-**家庭空间** (`/home/user/family-workspace/`)：
+**家庭空间** (`/root/家庭工作空间/`)：
 - `AGENTS.md` — 家庭生活助手角色定义（温暖的基督徒家庭 AI）
-- `MEMORY.md` — 家庭记忆（YOUR_NAME、Faith、新加坡、基督徒家庭）
+- `MEMORY.md` — 家庭记忆（Peter、Faith、新加坡、基督徒家庭）
 - `.factory/` — 目前为空，Persona 主要通过 `AGENTS.md` 和 `MEMORY.md` 定义
 
 ## 五、常见错误代码速查表
@@ -1787,23 +1981,24 @@ const proc = spawn(DROID_PATH, args, { cwd, env: DROID_ENV, ... });
 | 提醒发错 chatId（群提醒到私聊） | Droid 不知道当前 chatId | 确认 text handler 有注入 `[系统: chatId=...]`（坑 14） |
 | remind-cli 报 INVALID_TIME_FORMAT | Droid 传了错误时间格式 | remind-cli 加 `--json` 查看 hint，根据提示修正格式（坑 15） |
 | 单次提醒被设成每天（daily） | Droid 歧义时默认选了 daily | ctxNote 已注入默认规则，若仍出现可检查 ctxNote 代码（坑 16） |
+| ⏳ 上一个请求还在处理中（永久卡住） | Telegraf handlerTimeout(90s) < spawn timeout(120s)，droid 进程卡死不退出，finally 不执行 | 已修复：handlerTimeout=0 + SIGKILL 兜底 + checkProcessingStuck 自动检测（坑 18、19） |
 
 ## 六、关键文件速查
 
 | 文件 | 路径 | 用途 |
 |------|------|------|
-| 主程序 | `/path/to/telegram-droid-bot/index.js` | Bot 全部逻辑 |
-| 会话持久化 | `/path/to/telegram-droid-bot/sessions.json` | session ID + 模型 + 权限 持久化 |
-| 提醒持久化 | `/path/to/telegram-droid-bot/reminders.json` | 定时提醒/任务数据 |
-| 提醒 CLI 工具 | `/path/to/telegram-droid-bot/remind-cli.js` | Droid 调用设置提醒 |
+| 主程序 | `/root/telegram-droid-bot/index.js` | Bot 全部逻辑 |
+| 会话持久化 | `/root/telegram-droid-bot/sessions.json` | session ID + 模型 + 权限 持久化 |
+| 提醒持久化 | `/root/telegram-droid-bot/reminders.json` | 定时提醒/任务数据 |
+| 提醒 CLI 工具 | `/root/telegram-droid-bot/remind-cli.js` | Droid 调用设置提醒 |
 | systemd 服务 | `/etc/systemd/system/telegram-droid-bot.service` | 守护进程配置（含所有环境变量） |
 | Droid 配置 | `/root/.factory/settings.local.json` | 自定义模型定义 + API Key 引用 |
 | Droid 认证 | `/root/.factory/auth.v2.file` + `auth.v2.key` | Factory 登录令牌 |
 | API Keys | `/root/.bashrc` 中的 export | 手动运行时使用；systemd 需单独配置 |
-| 工作空间 | `/home/user/private-workspace/` | 私聊默认 cwd |
-| 家庭空间 | `/home/user/family-workspace/` | 家庭群聊 cwd |
-| 项目级 MCP 配置 | `/home/user/private-workspace/.mcp.json` | 爻财等 MCP 服务器配置 |
-| 部署文档 | `/home/user/private-workspace/重要的配置记录/DEPLOYMENT.md` | 本文档 |
+| 工作空间 | `/root/Peter工作空间/` | 私聊默认 cwd |
+| 家庭空间 | `/root/家庭工作空间/` | 家庭群聊 cwd |
+| 项目级 MCP 配置 | `/root/Peter工作空间/.mcp.json` | 爻财等 MCP 服务器配置 |
+| 部署文档 | `/root/Peter工作空间/重要的配置记录/DEPLOYMENT.md` | 本文档 |
 
 ---
 
@@ -1911,7 +2106,7 @@ setInterval (60s)
 - 日志特征：
   ```
   [REMINDER] 1 reminder(s) due
-  [DROID] droid exec -m custom:minimax-m2.7 -o json --auto high 用一句话告诉我当前服务器时间和内存使用情况 (cwd: /home/user/private-workspace)
+  [DROID] droid exec -m custom:minimax-m2.7 -o json --auto high 用一句话告诉我当前服务器时间和内存使用情况 (cwd: /root/Peter工作空间)
   ```
 
 ### 测试 3：过期 once 自动清理

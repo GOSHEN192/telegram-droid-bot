@@ -14,15 +14,15 @@ const DEFAULT_REMINDER_USER = process.env.DEFAULT_REMINDER_USER
   : null;
 const DROID_MODEL = process.env.DROID_MODEL || 'custom:minimax-m2.7';
 const DROID_PATH = process.env.DROID_PATH || '/root/.local/bin/droid';
-const DROID_CWD = process.env.DROID_CWD || '/home/user/private-workspace';
+const DROID_CWD = process.env.DROID_CWD || '/root/Peter工作空间';
 let DROID_TIMEOUT = parseInt(process.env.DROID_TIMEOUT) || 120000;
 
 // 群聊配置: chatId -> { cwd, label }
 const GROUP_CONFIGS = {
-  'YOUR_GROUP_CHAT_ID_1': { cwd: '/home/user/family-workspace', label: '家庭' },
-  'YOUR_GROUP_CHAT_ID_2': { cwd: '/home/user/family-workspace', label: '家庭' },
+  '-3872540185': { cwd: '/root/家庭工作空间', label: '家庭' },
+  '-1003872540185': { cwd: '/root/家庭工作空间', label: '家庭' },
 };
-const PRIVATE_CWD = '/home/user/private-workspace';
+const PRIVATE_CWD = '/root/Peter工作空间';
 
 const SESSION_FILE = path.join(__dirname, 'sessions.json');
 const REMINDER_FILE = path.join(__dirname, 'reminders.json');
@@ -79,7 +79,7 @@ const DROID_ENV = {
 };
 const HOME = process.env.HOME || '/root';
 
-const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 0 }); // 0=无限，由 spawn DROID_TIMEOUT 统一控制
 const userSessions = new Map();
 
 // ==================== 上下文感知 ====================
@@ -113,6 +113,8 @@ function loadSessions() {
         userSessions.set(key, {
           ...sess,
           processing: false,
+          processingSince: null,
+          currentProc: null,
           useSpec: sess.useSpec || false,
           useMission: sess.useMission || false,
           reasoning: sess.reasoning || null,
@@ -141,10 +143,50 @@ function getUserSession(userId, chatId) {
   if (!userSessions.has(key)) {
     userSessions.set(key, {
       sessionId: null, model: DROID_MODEL, autoLevel: 'high',
-      processing: false, useSpec: false, useMission: false, reasoning: null,
+      processing: false, processingSince: null, useSpec: false, useMission: false, reasoning: null,
+      currentProc: null,
     });
   }
   return userSessions.get(key);
+}
+
+// 检查 processing 是否真正卡死（区分正常长任务 vs 进程已死/僵尸）
+function checkProcessingStuck(s) {
+  if (!s.processing) return false;
+
+  // 检查 droid 子进程是否还活着（signal 0 不发信号，只检查进程是否存在）
+  const hasAliveProc = s.currentProc && s.currentProc.pid;
+  let procAlive = false;
+  if (hasAliveProc) {
+    try { process.kill(s.currentProc.pid, 0); procAlive = true; } catch(e) {}
+  }
+
+  if (procAlive) {
+    // 进程还活着 → 可能是正常长任务
+    // 兜底：如果超过 3x DROID_TIMEOUT（spawn timeout + SIGKILL 都失效的极端情况），视为僵尸
+    const zombieLimit = DROID_TIMEOUT * 3;
+    if (s.processingSince && Date.now() - s.processingSince > zombieLimit) {
+      console.log(`[STUCK] Process ${s.currentProc.pid} alive but exceeded 3x timeout (${zombieLimit/1000}s), force killing`);
+      s.currentProc.kill('SIGKILL');
+      s.currentProc = null;
+      s.processing = false; s.processingSince = null;
+      return true;
+    }
+    // 进程活着且未超 3x timeout → 正常长任务，不打断
+    return false;
+  }
+
+  // 进程不存在（已死或 currentProc 为 null）→ processing 应该已被 finally 清掉
+  // 如果还在 processing，说明 finally 没执行（Telegraf 旧 bug），需要手动重置
+  const stuckLimit = DROID_TIMEOUT + 10000; // DROID_TIMEOUT + 10s 缓冲
+  if (s.processingSince && Date.now() - s.processingSince > stuckLimit) {
+    console.log(`[STUCK] Process dead but processing=true for ${Math.round((Date.now()-s.processingSince)/1000)}s, auto-resetting`);
+    s.currentProc = null;
+    s.processing = false; s.processingSince = null;
+    return true;
+  }
+
+  return false;
 }
 
 loadSessions();
@@ -408,11 +450,22 @@ function execDroid(prompt, session, cwd, useFork = false) {
     args.push('-f', promptFile);
     console.log(`[DROID] ${DROID_PATH} ${args.join(' ')} (cwd: ${cwd})`);
     const proc = spawn(DROID_PATH, args, { cwd, env: DROID_ENV, timeout: DROID_TIMEOUT, maxBuffer: 1024*1024*10 });
-    let stdout='', stderr='';
+    // 将进程引用存到 session 上，方便 /stop 命令杀进程
+    session.currentProc = proc;
+    let stdout='', stderr='', resolved=false;
     proc.stdout.on('data', d => { stdout += d; });
     proc.stderr.on('data', d => { stderr += d; });
-    proc.on('close', code => { try { fs.unlinkSync(promptFile); } catch(e){} resolve({ code, stdout: stdout.trim(), stderr: stderr.trim() }); });
-    proc.on('error', err => { try { fs.unlinkSync(promptFile); } catch(e){} reject(err); });
+    const cleanup = () => { session.currentProc = null; try { fs.unlinkSync(promptFile); } catch(e){} };
+    proc.on('close', code => { if (resolved) return; resolved=true; cleanup(); resolve({ code, stdout: stdout.trim(), stderr: stderr.trim() }); });
+    proc.on('error', err => { if (resolved) return; resolved=true; cleanup(); reject(err); });
+    // spawn timeout 只发 SIGTERM，5秒后还没退出则 SIGKILL 强杀
+    const killTimer = setTimeout(() => {
+      if (!resolved && proc.pid) {
+        console.log(`[DROID] Process ${proc.pid} still alive after SIGTERM, sending SIGKILL...`);
+        proc.kill('SIGKILL');
+      }
+    }, DROID_TIMEOUT + 5000);
+    proc.on('close', () => clearTimeout(killTimer));
   });
 }
 
@@ -563,7 +616,13 @@ bot.command('stop', async ctx => {
   const uid=ctx.from.id; if (!isAllowed(uid)) return;
   const s=getUserSession(uid, cid(ctx));
   if (!s.processing) { await ctx.reply('当前无任务。'); return; }
-  s.processing=false; s.sessionId=null; saveSessions();
+  // 杀掉 droid 子进程
+  if (s.currentProc && s.currentProc.pid) {
+    console.log(`[STOP] Killing droid process ${s.currentProc.pid}`);
+    s.currentProc.kill('SIGKILL');
+    s.currentProc = null;
+  }
+  s.processing=false; s.processingSince=null; s.currentProc=null; s.sessionId=null; saveSessions();
   await ctx.reply('已停止，会话已重置。');
 });
 
@@ -1082,7 +1141,7 @@ bot.command('help', async ctx => {
     `插件:\n  /plugin list - 查看插件\n  /plugin install <名> - 安装\n  /plugin remove <名> - 卸载\n  /plugin update - 更新\n\n`+
     `MCP:\n  /mcp list - 查看MCP\n  /mcp add <名> <地址> - 添加\n  /mcp remove <名> - 删除\n\n`+
     `提醒:\n  /remind <时间> <内容>\n  /list - 查看提醒\n  /delete <ID|序号>\n\n`+
-    `图片:\n  直接发图片即可识别（需切换到支持图片的模型）\n\n`+
+    `图片:\n  直接发图片即可处理（上传电商/分析图片）\n\n`+
     `文件:\n  直接发文件即可处理（CSV/PDF/Excel/Word/TXT等）\n  支持自动发送生成的文件`
   );
 });
@@ -1099,9 +1158,8 @@ async function handlePhoto(ctx) {
   if (!isAllowed(uid)) return;
   const chatId=cid(ctx);
   const s=getUserSession(uid, chatId);
+  checkProcessingStuck(s);
   if (s.processing) { await ctx.reply('⏳ 上一个请求还在处理中...'); return; }
-
-  // 获取最高分辨率的图片
   const photos = ctx.message.photo;
   if (!photos || !photos.length) return;
   const photo = photos[photos.length - 1]; // 最大尺寸
@@ -1109,7 +1167,7 @@ async function handlePhoto(ctx) {
 
   console.log(`[PHOTO] ${uid} sent photo, fileId: ${fileId}`);
 
-  s.processing = true;
+  s.processing = true; s.processingSince = Date.now();
   let typingInterval = null;
   try {
     await ctx.sendChatAction('typing');
@@ -1136,28 +1194,18 @@ async function handlePhoto(ctx) {
     fs.writeFileSync(tmpPath, imageBuffer);
     console.log(`[PHOTO] Saved to ${tmpPath} (${imageBuffer.length} bytes)`);
 
-    // 检查当前模型是否支持图片
-    const noImageModels = Object.values(CUSTOM_MODELS);
-    const modelSupportsImage = !noImageModels.includes(s.model);
-
-    let prompt;
     const caption = ctx.message.caption || '';
-    if (modelSupportsImage) {
-      // 支持图片的模型：直接将图片路径传给 droid
-      prompt = (caption ? caption + '\n' : '') + `请分析这张图片。图片路径: ${tmpPath}`;
-    } else {
-      // 不支持图片的 custom model：告知用户
-      await ctx.reply('⚠️ 当前模型不支持图片识别。\n提示: 切换到支持图片的模型:\n  /model claude-sonnet\n  /model gpt54\n  /model gemini-pro');
-      if (typingInterval) clearInterval(typingInterval);
-      s.processing = false;
-      // 清理临时文件
-      try { fs.unlinkSync(tmpPath); } catch(e){}
-      return;
-    }
-
+    // 构建包含图片信息的 prompt，让 Droid 根据 AGENTS.md 规则处理
+    let prompt = `[图片已保存到: ${tmpPath}]\n`;
     if (caption) {
       prompt = caption + '\n' + prompt;
     }
+    // 添加图片处理指引
+    prompt += `\n[图片处理规则]：
+- 如果需要分析图片内容，请使用: mmx vision --file ${tmpPath}
+- 如果需要上传到电商网站，请按照 AGENTS.md 中的「电商产品图片上传」规则执行
+- 图片临时路径在对话结束后会自动删除，如需保留请及时处理`;
+
 
     const cwd=getCwdForChat(chatId);
     const ctxNote=`[系统: 当前会话 chatId=${chatId} (${getLabelForChat(chatId)})；调用 remind-cli 时请加 --json；提醒类型默认规则：除非用户明确说了"每天/每周/每月"等周期词，否则一律用 --type once（一次性），不要猜测]`;
@@ -1175,7 +1223,7 @@ async function handlePhoto(ctx) {
     await ctx.reply(`图片处理出错: ${e.message.slice(0,500)}`);
   } finally {
     if (typingInterval) clearInterval(typingInterval);
-    s.processing = false;
+    s.processing = false; s.processingSince = null; s.currentProc = null;
   }
 }
 
@@ -1205,9 +1253,8 @@ async function handleDocument(ctx) {
   if (!isAllowed(uid)) return;
   const chatId = cid(ctx);
   const s = getUserSession(uid, chatId);
+  checkProcessingStuck(s);
   if (s.processing) { await ctx.reply('⏳ 上一个请求还在处理中...'); return; }
-
-  const doc = ctx.message.document;
   const fileName = doc.file_name || 'unknown';
   const fileId = doc.file_id;
   const fileSize = doc.file_size || 0;
@@ -1221,7 +1268,7 @@ async function handleDocument(ctx) {
     return;
   }
 
-  s.processing = true;
+  s.processing = true; s.processingSince = Date.now();
   let typingInterval = null;
   try {
     await ctx.sendChatAction('typing');
@@ -1307,7 +1354,7 @@ async function handleDocument(ctx) {
     await ctx.reply(`文件处理出错: ${e.message.slice(0,500)}`);
   } finally {
     if (typingInterval) clearInterval(typingInterval);
-    s.processing = false;
+    s.processing = false; s.processingSince = null; s.currentProc = null;
   }
 }
 
@@ -1379,10 +1426,11 @@ bot.on('text', async ctx => {
   if (!isAllowed(uid)) return;
   const chatId=cid(ctx);
   const s=getUserSession(uid, chatId);
+  checkProcessingStuck(s);
   if (s.processing) { await ctx.reply('⏳ 上一个请求还在处理中...'); return; }
   console.log(`[MSG] ${uid} (${ctx.from.username||'?'}) @ ${getLabelForChat(chatId)}: ${txt}`);
 
-  s.processing=true;
+  s.processing=true; s.processingSince=Date.now();
   const cwd=getCwdForChat(chatId);
   let typingInterval=null;
   try {
@@ -1400,7 +1448,7 @@ bot.on('text', async ctx => {
     await ctx.reply(`出错了: ${e.message.slice(0,500)}`);
   } finally {
     if (typingInterval) clearInterval(typingInterval);
-    s.processing=false;
+    s.processing=false; s.processingSince=null; s.currentProc=null;
   }
 });
 
